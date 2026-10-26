@@ -1137,6 +1137,9 @@ html,body{background:#fff;color:#15212b;margin:0;padding:0}
 .ow-legend .mk i.ev-work{background:var(--c-work)}
 .ow-legend .mk i.ev-special{background:var(--c-special)}
 .ow-legend .mk i.ev-travel{background:var(--c-travel)}
+.ow-legend .mk i.ev-social{background:var(--c-social)}
+.ow-legend .mk i.ev-appt{background:var(--c-appt)}
+.ow-legend .mk i.ev-other{background:var(--c-other)}
 .ow-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px;font-size:10.5px;font-weight:700;color:var(--muted);text-align:center}
 .ow-grid{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:1fr;gap:3px}
 .ow-cell{position:relative;border:1px solid var(--line);border-radius:4px;min-height:36px;padding:3px 4px 14px;font-size:11px;background:#fff;min-width:0;overflow:hidden}
@@ -1152,6 +1155,9 @@ html,body{background:#fff;color:#15212b;margin:0;padding:0}
 .ow-ev .ev-work{color:var(--c-work)}
 .ow-ev .ev-special{color:var(--c-special)}
 .ow-ev .ev-travel{color:var(--c-travel)}
+.ow-ev .ev-social{color:var(--c-social)}
+.ow-ev .ev-appt{color:var(--c-appt)}
+.ow-ev .ev-other{color:var(--c-other)}
 .ow-ev .ev-more{color:var(--muted);font-weight:400}
 .ow-ev .ev-more::before{content:none}
 .ow-mk{position:absolute;right:3px;bottom:3px;display:flex;gap:2px}
@@ -1159,7 +1165,7 @@ html,body{background:#fff;color:#15212b;margin:0;padding:0}
 .ow-mk i.boys{background:var(--c-boys)}
 .ow-mk i.school{background:var(--c-school)}
 `;
-const OUTLOOK_EVENT_TYPES=['holiday','work','special','travel'];
+const OUTLOOK_EVENT_TYPES=['holiday','work','special','travel','social','appt','other'];
 const abbr3=s=>String(s||'').trim().slice(0,3).toUpperCase();
 function outlookEvTitle(o){
   const it=o.it;
