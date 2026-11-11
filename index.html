@@ -134,6 +134,7 @@ a.btn.maplink svg{width:14px;height:14px}
 .ugcard .ft{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .ugcard .vfl{display:flex;flex-direction:row;align-items:center;gap:7px;font-size:13.5px;white-space:nowrap}
 .ugcard .vfl input{width:auto;flex:none;margin:0}
+.ugcard .ft .vflno{flex:1;min-width:0;max-width:200px}
 dialog#ugRepDlg{width:min(860px,96vw);max-height:92vh}
 .ugr-ctl{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:12px}
 .ugr-ctl label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
@@ -1041,7 +1042,7 @@ function describeRow(o,ds){
     time=rng(it.startTime,it.endTime); const m=ugMins(it); if(m!==null) bits.push(esc(ugHm(m)+' underground'));
     const A=it.areas||[], C=it.convos||[];
     if(A.length) bits.push(esc('Areas: '+A.map(a=>a.name||'(unnamed)').join(', ')));
-    if(C.length) bits.push(esc(plural(C.length,'conversation')+', '+C.filter(c=>c.vfl).length+' VFL'));
+    if(C.length) bits.push(esc(plural(C.length,'conversation')+', '+C.filter(c=>c.vfl).length+' VFL'+(C.some(c=>c.vfl&&c.vflNo)?' ('+C.filter(c=>c.vfl&&c.vflNo).map(c=>'#'+c.vflNo).join(', ')+')':'')));
   }
   else if(it.type==='work'){
     time=rng(it.startTime,it.endTime); if(it.location)bits.push(locBit(it)); if(it.teamsLink)bits.push(teamsBit(it.teamsLink));
@@ -1493,7 +1494,7 @@ function saveEditor(){
   if(type==='work'){if(editImages.length) it.images=editImages.map(x=>({...x})); else delete it.images;}
   if(type==='ug'){
     const A=editAreas.filter(a=>a.name.trim()||a.notes.trim()).map(a=>({id:a.id,name:a.name.trim(),notes:a.notes.trim()}));
-    const C=editConvos.filter(c=>c.who.trim()||c.location.trim()||c.notes.trim()||c.vfl).map(c=>({id:c.id,who:c.who.trim(),location:c.location.trim(),notes:c.notes.trim(),vfl:!!c.vfl}));
+    const C=editConvos.filter(c=>c.who.trim()||c.location.trim()||c.notes.trim()||c.vfl).map(c=>({id:c.id,who:c.who.trim(),location:c.location.trim(),notes:c.notes.trim(),vfl:!!c.vfl,vflNo:c.vfl?String(c.vflNo||'').trim():''}));
     if(A.length) it.areas=A; else delete it.areas;
     if(C.length) it.convos=C; else delete it.convos;
     if(!it.title) it.title='Underground visit';
@@ -1840,7 +1841,7 @@ function ugEditorHtml(){
 function renderUgEditor(){
   const a=$('#ugAreas'), c=$('#ugConvos'); if(!a||!c) return;
   a.innerHTML=editAreas.map((x,i)=>`<div class="ugcard"><input type="text" data-ug="areas" data-i="${i}" data-f="name" value="${esc(x.name)}" placeholder="Panel / area (e.g. 5 South, MG12)" aria-label="Panel or area"><textarea data-ug="areas" data-i="${i}" data-f="notes" placeholder="Notes for this panel / area" aria-label="Notes">${esc(x.notes)}</textarea><div class="ft"><span></span><button type="button" class="btn danger" data-ugrm="areas" data-i="${i}">Remove</button></div></div>`).join('');
-  c.innerHTML=editConvos.map((x,i)=>`<div class="ugcard"><div class="r2"><input type="text" data-ug="convos" data-i="${i}" data-f="who" value="${esc(x.who)}" placeholder="Who you spoke with" aria-label="Who you spoke with"><input type="text" data-ug="convos" data-i="${i}" data-f="location" value="${esc(x.location)}" placeholder="Location" aria-label="Location"></div><textarea data-ug="convos" data-i="${i}" data-f="notes" placeholder="What was discussed" aria-label="Conversation notes">${esc(x.notes)}</textarea><div class="ft"><label class="vfl"><input type="checkbox" data-ug="convos" data-i="${i}" data-f="vfl" ${x.vfl?'checked':''}>VFL completed</label><button type="button" class="btn danger" data-ugrm="convos" data-i="${i}">Remove</button></div></div>`).join('');
+  c.innerHTML=editConvos.map((x,i)=>`<div class="ugcard"><div class="r2"><input type="text" data-ug="convos" data-i="${i}" data-f="who" value="${esc(x.who)}" placeholder="Who you spoke with" aria-label="Who you spoke with"><input type="text" data-ug="convos" data-i="${i}" data-f="location" value="${esc(x.location)}" placeholder="Location" aria-label="Location"></div><textarea data-ug="convos" data-i="${i}" data-f="notes" placeholder="What was discussed" aria-label="Conversation notes">${esc(x.notes)}</textarea><div class="ft"><label class="vfl"><input type="checkbox" data-ug="convos" data-i="${i}" data-f="vfl" ${x.vfl?'checked':''}>VFL completed</label>${x.vfl?`<input type="text" class="vflno" data-ug="convos" data-i="${i}" data-f="vflNo" value="${esc(x.vflNo||'')}" placeholder="VFL number" aria-label="VFL number">`:''}<button type="button" class="btn danger" data-ugrm="convos" data-i="${i}">Remove</button></div></div>`).join('');
 }
 function ugList(k){return k==='areas'?editAreas:editConvos;}
 document.addEventListener('click',e=>{
@@ -1851,6 +1852,7 @@ document.addEventListener('click',e=>{
 document.addEventListener('input',e=>{
   const t=e.target; if(!t.dataset||!t.dataset.ug) return;
   const it=ugList(t.dataset.ug)[+t.dataset.i]; if(it) it[t.dataset.f]=t.type==='checkbox'?t.checked:t.value;
+  if(t.dataset.f==='vfl') renderUgEditor();
 });
 
 let ugRange={preset:'30',from:'',to:'',byPreset:true};
@@ -1887,7 +1889,7 @@ function ugReportHtml(r){
     return[esc(ugDate(v.date)),esc(v.startTime||'-'),esc(v.endTime||'-'),m!==null?esc(ugHm(m)):'-',String((v.areas||[]).length),String((v.convos||[]).length),esc(v.notes||'')];})):'<p class="none">No underground visits in this period.</p>';
   const al=Object.values(r.areas).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
   if(al.length) h+='<h3>Panels / areas visited</h3>'+tbl(['Panel / area','Visits','Notes'],al.map(a=>[esc(a.name),String(a.count),esc(a.notes.join('\n'))]));
-  if(r.convos.length) h+='<h3>Conversations</h3>'+tbl(['Date','With','Location','VFL','Notes'],r.convos.map(c=>[esc(ugDate(c.date)),esc(c.who||'(unnamed)'),esc(c.location||'-'),c.vfl?'<span class="yes">Completed</span>':'<span class="no">Not completed</span>',esc(c.notes||'-')]));
+  if(r.convos.length) h+='<h3>Conversations</h3>'+tbl(['Date','With','Location','VFL','Notes'],r.convos.map(c=>[esc(ugDate(c.date)),esc(c.who||'(unnamed)'),esc(c.location||'-'),c.vfl?'<span class="yes">Completed'+(c.vflNo?' - VFL '+esc(c.vflNo):'')+'</span>':'<span class="no">Not completed</span>',esc(c.notes||'-')]));
   return h+'</div>';
 }
 function ugReportText(r){
@@ -1897,7 +1899,7 @@ function ugReportText(r){
   if(r.visits.length){L.push('','Visits');r.visits.forEach(v=>{const m=ugMins(v);L.push('- '+ugDate(v.date)+': '+(v.startTime||'-')+' to '+(v.endTime||'-')+(m!==null?' ('+ugHm(m)+')':'')+(v.notes?' - '+v.notes:''));});}
   const al=Object.values(r.areas).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
   if(al.length){L.push('','Panels / areas visited');al.forEach(a=>{L.push('- '+a.name+' ('+plural(a.count,'visit')+')');a.notes.forEach(n=>L.push('    '+n));});}
-  if(r.convos.length){L.push('','Conversations');r.convos.forEach(c=>L.push('- '+ugDate(c.date)+': '+(c.who||'(unnamed)')+(c.location?' @ '+c.location:'')+' [VFL '+(c.vfl?'completed':'not completed')+']'+(c.notes?': '+c.notes:'')));}
+  if(r.convos.length){L.push('','Conversations');r.convos.forEach(c=>L.push('- '+ugDate(c.date)+': '+(c.who||'(unnamed)')+(c.location?' @ '+c.location:'')+' [VFL '+(c.vfl?'completed'+(c.vflNo?' #'+c.vflNo:''):'not completed')+']'+(c.notes?': '+c.notes:'')));}
   return L.join('\n');
 }
 const UG_PRESETS=[['7','Last 7 days'],['30','Last 30 days'],['thisweek','This week (Mon-Sun)'],['lastweek','Last week'],['thismonth','This month'],['lastmonth','Last month'],['fy','This financial year (Jul-Jun)'],['custom','Custom dates']];
