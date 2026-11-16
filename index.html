@@ -507,6 +507,8 @@ const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
 
 /* ---------- state ---------- */
 const LS_KEY='calendar-data-v1', LS_DIRTY='calendar-dirty-v1', LS_ACT='calendar-actions-v1', LS_FILTERS='calendar-filters-v1';
+const LS_HINT='calendar-login-hint-v1', LS_AUTOTRY='calendar-autosignin-at-v1';   // remembered Microsoft account + time of the last automatic sign-in attempt (own names: all pages share one browser origin)
+const IN_FRAME=(()=>{try{return window.self!==window.top;}catch(e){return true;}})();
 
 /* ====== EDIT THESE LINES BEFORE PUBLISHING (see the setup guide) ====== */
 const GRAPH_CLIENT_ID='5c5944f8-0a74-4cf9-9636-6c3100175115';                       // Application (client) ID from your Azure app registration
@@ -662,7 +664,7 @@ function renderPill(){
   const p=$('#statusPill'), s=statusInfo; let cls='',tx='';
   if(s.state==='saved'){cls='ok';tx='Saved to OneDrive';}
   else if(s.state==='saving'){cls='warn';tx='Saving…';}
-  else if(s.state==='signedout'){cls='warn';tx='Sign in to save';}
+  else if(s.state==='signedout'){cls='warn';tx=hintFirstName()?'Continue as '+hintFirstName():'Sign in to save';}
   else if(s.state==='error'){cls='bad';tx='Save problem – tap for details';}
   else {cls='';tx=MSAL_CONFIGURED?'Not signed in – changes stay in this browser':'Not set up – changes stay in this browser';}
   p.className='pill '+cls; p.innerHTML=`<i class="sd"></i><span class="tx">${esc(tx)}</span>`;
@@ -681,24 +683,56 @@ function renderPill(){
 function graphUrlFor(path){
   return 'https://graph.microsoft.com/v1.0/me/drive/root:/'+path.split('/').map(encodeURIComponent).join('/')+':/content';
 }
-async function getGraphToken(interactive){
+async function getGraphToken(){
   if(!msalApp) return null;
   const acct=msalAccount||msalApp.getAllAccounts()[0]; if(!acct) return null;
   try{const r=await msalApp.acquireTokenSilent({scopes:GRAPH_SCOPES,account:acct});msalAccount=r.account;return r.accessToken;}
-  catch(e){
-    if(!interactive) return null;
-    const r=await msalApp.acquireTokenPopup({scopes:GRAPH_SCOPES});msalAccount=r.account;return r.accessToken;
+  catch(e){return null;}
+}
+/* Silent token renewal only. When Microsoft needs you again (about once a day on personal accounts) the page says so in the status pill
+   instead of opening a popup the browser would block; one click on "Continue as ..." (or an automatic attempt when the page opens) renews it. */
+function reauthError(){const e=new Error('Sign in again to sync');e.reauth=true;return e;}
+const rememberHint=a=>{try{if(a&&a.username)localStorage.setItem(LS_HINT,JSON.stringify({u:a.username,n:a.name||''}));}catch(e){}};
+const readHint=()=>{try{return JSON.parse(localStorage.getItem(LS_HINT)||'null');}catch(e){return null;}};
+const hintFirstName=()=>{const h=readHint();if(!h)return '';return (h.n||h.u||'').split(/[ @]/)[0];};
+async function redirectSignIn(){
+  const h=readHint();
+  const req={scopes:GRAPH_SCOPES};
+  if(h&&h.u) req.loginHint=h.u;
+  if(msalAccount) req.account=msalAccount;
+  await msalApp.loginRedirect(req);
+}
+function clearStuckInteraction(){
+  for(const st of [localStorage,sessionStorage]){
+    try{Object.keys(st).filter(k=>/interaction\.status/i.test(k)).forEach(k=>st.removeItem(k));}catch(e){}
   }
 }
+/* when the page opens and the saved sign-in has expired: try silently first, then go through Microsoft once (at most every 5 minutes) */
+async function autoReauth(){
+  const h=readHint();
+  setStatus('signedout');
+  if(h&&h.u){
+    try{
+      const r=await msalApp.ssoSilent({scopes:GRAPH_SCOPES,loginHint:h.u});
+      if(r&&r.account){msalAccount=r.account;rememberHint(r.account);return true;}
+    }catch(e){}
+  }
+  if(IN_FRAME) return false;                                   // embedded pages cannot redirect: the pill offers a popup instead
+  let last=0; try{last=+localStorage.getItem(LS_AUTOTRY)||0;}catch(e){}
+  if(Date.now()-last<5*60*1000) return false;                  // already tried a moment ago: wait for a click rather than loop
+  try{localStorage.setItem(LS_AUTOTRY,String(Date.now()));}catch(e){}
+  try{await redirectSignIn();}catch(e){console.error(e);}
+  return false;
+}
 async function graphGetText(path){
-  const token=await getGraphToken(true); if(!token) throw new Error('Not signed in');
+  const token=await getGraphToken(); if(!token) throw reauthError();
   const res=await fetch(graphUrlFor(path),{headers:{Authorization:'Bearer '+token}});
   if(res.status===404) return null;
   if(!res.ok) throw new Error('OneDrive read failed (HTTP '+res.status+')');
   return await res.text();
 }
 async function graphPutText(path,text){
-  const token=await getGraphToken(true); if(!token) throw new Error('Not signed in');
+  const token=await getGraphToken(); if(!token) throw reauthError();
   const bytes=new TextEncoder().encode(text);
   if(bytes.length<=4*1024*1024){
     const res=await fetch(graphUrlFor(path),{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:bytes});
@@ -732,7 +766,7 @@ async function saveToOneDrive(force=false){
     lastText=text;
     if(rev===startRev){dirty=false;setDirtyFlag(false);setStatus('saved');}
     else{clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveToOneDrive(),300);}
-  }catch(e){console.error(e);setStatus('error',e.message||String(e));}
+  }catch(e){if(e.reauth){setStatus('signedout');return;}console.error(e);setStatus('error',e.message||String(e));}
   finally{writing=false;}
 }
 let familySyncChain=Promise.resolve();
@@ -792,19 +826,23 @@ async function syncFromOneDrive(){
     }
     data=normalise(obj); lastText=txt; dirty=false; setDirtyFlag(false); cacheLocal(); setStatus('saved'); render(); finishLoad();
     if(actionsState.linked||actionsState.list.length) rebuildActionIndex();
-  }catch(e){console.error(e);setStatus('error',e.message||String(e));}
+  }catch(e){if(e.reauth){setStatus('signedout');return;}console.error(e);setStatus('error',e.message||String(e));}
 }
 async function signIn(){
   if(!MSAL_CONFIGURED){toast('Set GRAPH_CLIENT_ID in the file before publishing it.');return;}
   try{
-    const r=await msalApp.loginPopup({scopes:GRAPH_SCOPES}); msalAccount=r.account;
+    if(!IN_FRAME){ try{localStorage.setItem(LS_AUTOTRY,String(Date.now()));}catch(e){} await redirectSignIn(); return; }   // page leaves and comes straight back; Microsoft usually asks nothing
+    const h=readHint(), req={scopes:GRAPH_SCOPES}; if(h&&h.u) req.loginHint=h.u;
+    const r=await msalApp.loginPopup(req); msalAccount=r.account; rememberHint(r.account);
     renderData(); await syncFromOneDrive();
     if(ONEDRIVE_ACTIONS_PATH) await refreshActionsFromOneDrive();
+    if(ONEDRIVE_FEED_STATUS_PATH) refreshPhoneHealth();
     renderPill();
   }catch(e){toast('Sign-in was not completed: '+e.message);}
 }
 function signOut(){
   const acct=msalAccount; msalAccount=null; setStatus('local'); renderData(); renderPill();
+  try{localStorage.removeItem(LS_HINT);localStorage.removeItem(LS_AUTOTRY);}catch(e){}
   if(acct) msalApp.logoutPopup({account:acct}).catch(()=>{});
 }
 function exportJson(){
@@ -2005,10 +2043,15 @@ document.addEventListener('visibilitychange',()=>{
         cache:{cacheLocation:'localStorage'}
       });
       await msalApp.initialize();
-      await msalApp.handleRedirectPromise().catch(()=>{});
+      let rr=null; try{rr=await msalApp.handleRedirectPromise();}catch(e){console.error(e);}
+      clearStuckInteraction();
       const accts=msalApp.getAllAccounts();
-      if(accts.length){msalAccount=accts[0]; await syncFromOneDrive(); if(ONEDRIVE_ACTIONS_PATH) await refreshActionsFromOneDrive(); if(ONEDRIVE_FEED_STATUS_PATH) refreshPhoneHealth();}
+      msalAccount=(rr&&rr.account)||accts[0]||null;
+      let ready=false;
+      if(msalAccount){ rememberHint(msalAccount); ready=!!(await getGraphToken()); if(!ready) ready=await autoReauth(); }
+      else if(readHint()) ready=await autoReauth();
       else setStatus('local');
+      if(ready&&msalAccount){await syncFromOneDrive(); if(ONEDRIVE_ACTIONS_PATH) await refreshActionsFromOneDrive(); if(ONEDRIVE_FEED_STATUS_PATH) refreshPhoneHealth();}
     }catch(e){console.error(e);setStatus('local');}
   }else setStatus('local');
   renderPill();
