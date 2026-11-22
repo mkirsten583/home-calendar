@@ -1630,7 +1630,11 @@ function sexStats(){
   const thisMonth=dates.filter(d=>d.slice(0,7)===thisMonthKey).length;
   const gaps=[]; for(let i=1;i<dates.length;i++) gaps.push(dayNum(dates[i])-dayNum(dates[i-1]));
   const avgGap=gaps.length?Math.round((gaps.reduce((a,b)=>a+b,0)/gaps.length)*10)/10:null;
-  return {n,last30,last365,thisMonth,avgGap,last:n?dates[n-1]:null};
+  // averages over the time since the first entry (calculated from the log; flagged "est." while the history is shorter than the period)
+  const span=n?Math.max(1,tDn-dayNum(dates[0])+1):0, perDay=span?n/span:0, r1=v=>Math.round(v*10)/10;
+  const avg={week:span?r1(perDay*7):null,month:span?r1(perDay*365.25/12):null,year:span?r1(perDay*365.25):null,
+    weekEst:span<7,monthEst:span<30,yearEst:span<365,span};
+  return {n,last30,last365,thisMonth,avgGap,avg,last:n?dates[n-1]:null};
 }
 function cycleLenPairs(starts){const out=[];for(let i=1;i<starts.length;i++)out.push(dayNum(starts[i])-dayNum(starts[i-1]));return out;}
 function periodStats(){
@@ -1666,9 +1670,13 @@ function renderSexTab(){
     <div class="tkstat"><b>${st.thisMonth}</b><br><span class="mut">This month</span></div>
     <div class="tkstat"><b>${st.last30}</b><br><span class="mut">Last 30 days</span></div>
     <div class="tkstat"><b>${st.last365}</b><br><span class="mut">Last 12 months</span></div>
+    <div class="tkstat"><b>${st.avg.week!=null?st.avg.week+(st.avg.weekEst?' est.':''):'–'}</b><br><span class="mut">Weekly average</span></div>
+    <div class="tkstat"><b>${st.avg.month!=null?st.avg.month+(st.avg.monthEst?' est.':''):'–'}</b><br><span class="mut">Monthly average</span></div>
+    <div class="tkstat"><b>${st.avg.year!=null?st.avg.year+(st.avg.yearEst?' est.':''):'–'}</b><br><span class="mut">Yearly average</span></div>
     <div class="tkstat"><b>${st.avgGap!=null?st.avgGap+' days':'–'}</b><br><span class="mut">Average gap</span></div>
     <div class="tkstat"><b>${st.last?shortDate(st.last):'–'}</b><br><span class="mut">Most recent</span></div>
   </div>
+  ${st.avg.span?`<p class="mut">Averages are per week, month and year, worked out from your first entry (${st.avg.span} day${st.avg.span===1?'':'s'} ago) to today. &ldquo;est.&rdquo; means there isn&rsquo;t a full week, month or year of history yet, so the figure is projected from what is logged.</p>`:''}
   <h3>History</h3>
   <div class="tklist">${rows}</div>`;
 }
