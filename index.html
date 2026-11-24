@@ -148,6 +148,9 @@ dialog#ugRepDlg{width:min(860px,96vw);max-height:92vh}
 .ugr th{font-size:11.5px;color:var(--muted)}
 .ugr .yes{color:var(--ok);font-weight:600}.ugr .no{color:var(--muted)}
 .ugr .none{color:var(--muted);font-style:italic}
+.ugdoc{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.ugdoc a{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ugdoc .sz{font-size:12px;color:var(--muted);white-space:nowrap}
 .bi svg{width:19px;height:19px;display:block}
 .fd .bi svg{width:21px;height:21px}
 .dtl{font-size:11.5px;font-weight:650;color:var(--dt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -749,6 +752,26 @@ async function graphPutText(path,text){
     if(!r.ok&&r.status!==200&&r.status!==201) throw new Error('Save interrupted partway through (HTTP '+r.status+')');
   }
 }
+/* attach a document: the file goes into its own OneDrive folder and only a small reference is kept in the calendar data */
+async function graphUploadFile(path,file){
+  const token=await getGraphToken(); if(!token) throw reauthError();
+  if(file.size<=4*1024*1024){
+    const res=await fetch(graphUrlFor(path),{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':file.type||'application/octet-stream'},body:file});
+    if(!res.ok) throw new Error('Upload failed (HTTP '+res.status+')');
+    return await res.json();
+  }
+  const sessRes=await fetch(graphUrlFor(path).replace(':/content','')+':/createUploadSession',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace'}})});
+  if(!sessRes.ok) throw new Error('Could not start the upload (HTTP '+sessRes.status+')');
+  const uploadUrl=(await sessRes.json()).uploadUrl, chunk=3276800; let item=null;
+  for(let start=0;start<file.size;start+=chunk){
+    const end=Math.min(start+chunk,file.size);
+    const r=await fetch(uploadUrl,{method:'PUT',headers:{'Content-Range':`bytes ${start}-${end-1}/${file.size}`},body:file.slice(start,end)});
+    if(!r.ok) throw new Error('Upload interrupted partway through (HTTP '+r.status+')');
+    if(r.status===200||r.status===201) item=await r.json();
+  }
+  if(!item) throw new Error('Upload did not finish');
+  return item;
+}
 async function saveToOneDrive(force=false){
   if(!msalAccount||writing) return;
   writing=true; const startRev=rev;
@@ -771,7 +794,7 @@ async function saveToOneDrive(force=false){
 }
 let familySyncChain=Promise.resolve();
 function queueFamilySync(fn){ familySyncChain=familySyncChain.then(fn).catch(e=>{console.error(e);toast('Could not update Family Calendar: '+(e.message||e));}); return familySyncChain; }
-const FAMILY_STRIP_FIELDS=['link','teamsLink','images','areas','convos'];   // Family Calendar copies never carry notes, links or images/attachments
+const FAMILY_STRIP_FIELDS=['link','teamsLink','images','areas','convos','docs'];   // Family Calendar copies never carry notes, links or images/attachments
 function familyIdFor(it,occDate){
   // A repeating item shares only the single day you were viewing when you ticked the box —
   // each occurrence you share gets its own id, rather than the whole series (and its repeat rule) being copied.
@@ -1080,6 +1103,7 @@ function describeRow(o,ds){
     time=rng(it.startTime,it.endTime); const m=ugMins(it); if(m!==null) bits.push(esc(ugHm(m)+' underground'));
     const A=it.areas||[], C=it.convos||[];
     if(A.length) bits.push(esc('Areas: '+A.map(a=>a.name||'(unnamed)').join(', ')));
+    if((it.docs||[]).length) bits.push(esc(plural(it.docs.length,'document')));
     if(C.length) bits.push(esc(plural(C.length,'conversation')+', '+C.filter(c=>c.vfl).length+' VFL'+(C.some(c=>c.vfl&&c.vflNo)?' ('+C.filter(c=>c.vfl&&c.vflNo).map(c=>'#'+c.vflNo).join(', ')+')':'')));
   }
   else if(it.type==='work'){
@@ -1475,7 +1499,7 @@ function openEditor(type,id,date,seed){
    +(FAMILY_ENABLED?`<label class="f chkf wide"><input id="f_family" type="checkbox" ${it.family?'checked':''}><span>Also add to Family Calendar</span></label>`:'')
    +`</div><div class="err" id="edErr"></div></div>`
    +`<div class="dfoot">${ex?(canSkip?`<button class="btn danger" data-act="skip">Remove ${esc(shortDate(date))} only</button><button class="btn danger" data-act="delete">Delete whole series</button>`:'<button class="btn danger" data-act="delete">Delete</button>'):''}<span class="sp"></span><button class="btn" data-act="cancel">Cancel</button><button class="btn primary" data-act="save">Save</button></div>`;
-  if(type==='ug'){editAreas=(ex&&ex.areas?ex.areas:[]).map(x=>({...x}));editConvos=(ex&&ex.convos?ex.convos:[]).map(x=>({...x}));renderUgEditor();}
+  if(type==='ug'){editAreas=(ex&&ex.areas?ex.areas:[]).map(x=>({...x}));editConvos=(ex&&ex.convos?ex.convos:[]).map(x=>({...x}));editDocs=(ex&&ex.docs?ex.docs:[]).map(x=>({...x}));renderUgEditor();}
   syncRepeatUI(); syncSpecialUI(); syncMapLink(); renderEditImages(); d.showModal(); const first=$('#f_title'); if(first&&!ex) first.focus();
 }
 function ageParts(b,r){
@@ -1535,6 +1559,7 @@ function saveEditor(){
     const C=editConvos.filter(c=>c.who.trim()||c.location.trim()||c.notes.trim()||c.vfl).map(c=>({id:c.id,who:c.who.trim(),location:c.location.trim(),notes:c.notes.trim(),vfl:!!c.vfl,vflNo:c.vfl?String(c.vflNo||'').trim():''}));
     if(A.length) it.areas=A; else delete it.areas;
     if(C.length) it.convos=C; else delete it.convos;
+    if(editDocs.length) it.docs=editDocs.map(d=>({...d})); else delete it.docs;
     if(!it.title) it.title='Underground visit';
   }
   const err=m=>{$('#edErr').textContent=m;return false;};
@@ -1873,7 +1898,8 @@ document.addEventListener('drop',e=>{
 });
 
 /* ---------- underground visits: editor lists and period report ---------- */
-let editAreas=[], editConvos=[];
+let editAreas=[], editConvos=[], editDocs=[];
+const UG_DOC_FOLDER=ONEDRIVE_DATA_PATH.replace(/[^/]+$/,'')+'Underground Documents/', MAX_DOC_MB=50;
 function ugMins(it){
   if(!it.startTime||!it.endTime) return null;
   const a=it.startTime.split(':').map(Number), b=it.endTime.split(':').map(Number); let m=(b[0]*60+b[1])-(a[0]*60+a[1]); if(m<0) m+=1440; return m;
@@ -1882,19 +1908,44 @@ const ugHm=m=>(Math.floor(m/60)?Math.floor(m/60)+' h ':'')+(m%60)+' min';
 const ugDate=ds=>shortDate(ds)+' '+parse(ds).y;
 function ugEditorHtml(){
   return `<div class="f wide"><span>Panels / areas visited</span><div id="ugAreas"></div><div><button type="button" class="btn" data-ugadd="areas">+ Add panel / area</button></div></div>`
-   +`<div class="f wide"><span>Conversations</span><div id="ugConvos"></div><div><button type="button" class="btn" data-ugadd="convos">+ Add conversation</button></div></div>`;
+   +`<div class="f wide"><span>Conversations</span><div id="ugConvos"></div><div><button type="button" class="btn" data-ugadd="convos">+ Add conversation</button></div></div>`
+   +`<div class="f wide"><span>Documents</span><div id="ugDocs"></div><div><input type="file" id="ugDocPick" multiple hidden><button type="button" class="btn" data-ugadd="docs">+ Attach document</button> <span class="mut" id="ugDocBusy"></span></div></div>`;
+}
+const fmtSize=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB';
+const safeUrl=u=>/^https:\/\//i.test(u||'')?u:'';
+function renderUgDocs(){
+  const d=$('#ugDocs'); if(!d) return;
+  d.innerHTML=editDocs.map((x,i)=>`<div class="ugdoc">${safeUrl(x.url)?`<a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener" title="Open in OneDrive">${esc(x.name)}</a>`:`<span>${esc(x.name)}</span>`}<span class="sz">${esc(fmtSize(x.size||0))}</span><button type="button" class="btn danger" data-ugrm="docs" data-i="${i}">Remove</button></div>`).join('');
+}
+async function addUgDocs(files){
+  const busy=$('#ugDocBusy');
+  if(!msalAccount){toast('Sign in to OneDrive first - documents are stored there.');return;}
+  for(const f of files){
+    if(f.size>MAX_DOC_MB*1048576){toast(f.name+' is over '+MAX_DOC_MB+' MB');continue;}
+    const id=uid(), name=f.name.replace(/[\\/:*?"<>|#%]/g,'_'), path=UG_DOC_FOLDER+id+' - '+name;
+    if(busy) busy.textContent='Uploading '+f.name+'...';
+    try{
+      const it=await graphUploadFile(path,f);
+      editDocs.push({id,name:f.name,path,size:f.size,type:f.type||'',url:it.webUrl||''});
+      renderUgDocs();
+    }catch(err){ if(err.reauth){setStatus('signedout');toast('Sign in again, then attach the document.');} else toast('Could not attach '+f.name+': '+(err.message||err)); }
+  }
+  if(busy) busy.textContent='';
 }
 function renderUgEditor(){
+  renderUgDocs();
   const a=$('#ugAreas'), c=$('#ugConvos'); if(!a||!c) return;
   a.innerHTML=editAreas.map((x,i)=>`<div class="ugcard"><input type="text" data-ug="areas" data-i="${i}" data-f="name" value="${esc(x.name)}" placeholder="Panel / area (e.g. 5 South, MG12)" aria-label="Panel or area"><textarea data-ug="areas" data-i="${i}" data-f="notes" placeholder="Notes for this panel / area" aria-label="Notes">${esc(x.notes)}</textarea><div class="ft"><span></span><button type="button" class="btn danger" data-ugrm="areas" data-i="${i}">Remove</button></div></div>`).join('');
   c.innerHTML=editConvos.map((x,i)=>`<div class="ugcard"><div class="r2"><input type="text" data-ug="convos" data-i="${i}" data-f="who" value="${esc(x.who)}" placeholder="Who you spoke with" aria-label="Who you spoke with"><input type="text" data-ug="convos" data-i="${i}" data-f="location" value="${esc(x.location)}" placeholder="Location" aria-label="Location"></div><textarea data-ug="convos" data-i="${i}" data-f="notes" placeholder="What was discussed" aria-label="Conversation notes">${esc(x.notes)}</textarea><div class="ft"><label class="vfl"><input type="checkbox" data-ug="convos" data-i="${i}" data-f="vfl" ${x.vfl?'checked':''}>VFL completed</label>${x.vfl?`<input type="text" class="vflno" data-ug="convos" data-i="${i}" data-f="vflNo" value="${esc(x.vflNo||'')}" placeholder="VFL number" aria-label="VFL number">`:''}<button type="button" class="btn danger" data-ugrm="convos" data-i="${i}">Remove</button></div></div>`).join('');
 }
-function ugList(k){return k==='areas'?editAreas:editConvos;}
+function ugList(k){return k==='areas'?editAreas:k==='docs'?editDocs:editConvos;}
 document.addEventListener('click',e=>{
   const add=e.target.closest&&e.target.closest('[data-ugadd]'), rm=e.target.closest&&e.target.closest('[data-ugrm]');
-  if(add){ if(add.dataset.ugadd==='areas') editAreas.push({id:uid(),name:'',notes:''}); else editConvos.push({id:uid(),who:'',location:'',notes:'',vfl:false}); renderUgEditor(); }
+  if(add&&add.dataset.ugadd==='docs'){ const pk=$('#ugDocPick'); if(pk){pk.value='';pk.click();} }
+  else if(add){ if(add.dataset.ugadd==='areas') editAreas.push({id:uid(),name:'',notes:''}); else editConvos.push({id:uid(),who:'',location:'',notes:'',vfl:false}); renderUgEditor(); }
   else if(rm){ ugList(rm.dataset.ugrm).splice(+rm.dataset.i,1); renderUgEditor(); }
 });
+document.addEventListener('change',e=>{ if(e.target&&e.target.id==='ugDocPick') addUgDocs([...e.target.files]); });
 document.addEventListener('input',e=>{
   const t=e.target; if(!t.dataset||!t.dataset.ug) return;
   const it=ugList(t.dataset.ug)[+t.dataset.i]; if(it) it[t.dataset.f]=t.type==='checkbox'?t.checked:t.value;
@@ -1931,8 +1982,9 @@ function ugReportHtml(r){
     +stat(r.visits.length,'underground visits')+stat(r.timed?ugHm(r.mins):'-','time underground')
     +stat(r.timed?ugHm(Math.round(r.mins/r.timed)):'-','average per visit')+stat(r.convos.length,'conversations')+stat(r.vfl+' of '+r.convos.length,'VFLs completed')+`</div>`;
   h+='<h3>Visits</h3>';
-  h+=r.visits.length?tbl(['Date','In','Out','Duration','Areas','Conversations','Notes'],r.visits.map(v=>{const m=ugMins(v);
-    return[esc(ugDate(v.date)),esc(v.startTime||'-'),esc(v.endTime||'-'),m!==null?esc(ugHm(m)):'-',String((v.areas||[]).length),String((v.convos||[]).length),esc(v.notes||'')];})):'<p class="none">No underground visits in this period.</p>';
+  h+=r.visits.length?tbl(['Date','In','Out','Duration','Areas','Conversations','Documents','Notes'],r.visits.map(v=>{const m=ugMins(v);
+    const dl=(v.docs||[]).map(d=>safeUrl(d.url)?`<a href="${esc(safeUrl(d.url))}" target="_blank" rel="noopener">${esc(d.name)}</a>`:esc(d.name)).join('<br>')||'-';
+    return[esc(ugDate(v.date)),esc(v.startTime||'-'),esc(v.endTime||'-'),m!==null?esc(ugHm(m)):'-',String((v.areas||[]).length),String((v.convos||[]).length),dl,esc(v.notes||'')];})):'<p class="none">No underground visits in this period.</p>';
   const al=Object.values(r.areas).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
   if(al.length) h+='<h3>Panels / areas visited</h3>'+tbl(['Panel / area','Visits','Notes'],al.map(a=>[esc(a.name),String(a.count),esc(a.notes.join('\n'))]));
   if(r.convos.length) h+='<h3>Conversations</h3>'+tbl(['Date','With','Location','VFL','Notes'],r.convos.map(c=>[esc(ugDate(c.date)),esc(c.who||'(unnamed)'),esc(c.location||'-'),c.vfl?'<span class="yes">Completed'+(c.vflNo?' - VFL '+esc(c.vflNo):'')+'</span>':'<span class="no">Not completed</span>',esc(c.notes||'-')]));
@@ -1942,7 +1994,7 @@ function ugReportText(r){
   const L=['Underground report: '+ugDate(r.from)+' to '+ugDate(r.to),'','Underground visits: '+r.visits.length];
   if(r.timed) L.push('Time underground: '+ugHm(r.mins)+' (average '+ugHm(Math.round(r.mins/r.timed))+' per timed visit)');
   L.push('Conversations: '+r.convos.length,'VFLs completed: '+r.vfl);
-  if(r.visits.length){L.push('','Visits');r.visits.forEach(v=>{const m=ugMins(v);L.push('- '+ugDate(v.date)+': '+(v.startTime||'-')+' to '+(v.endTime||'-')+(m!==null?' ('+ugHm(m)+')':'')+(v.notes?' - '+v.notes:''));});}
+  if(r.visits.length){L.push('','Visits');r.visits.forEach(v=>{const m=ugMins(v);L.push('- '+ugDate(v.date)+': '+(v.startTime||'-')+' to '+(v.endTime||'-')+(m!==null?' ('+ugHm(m)+')':'')+(v.notes?' - '+v.notes:'')+((v.docs||[]).length?' [documents: '+v.docs.map(d=>d.name).join(', ')+']':''));});}
   const al=Object.values(r.areas).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
   if(al.length){L.push('','Panels / areas visited');al.forEach(a=>{L.push('- '+a.name+' ('+plural(a.count,'visit')+')');a.notes.forEach(n=>L.push('    '+n));});}
   if(r.convos.length){L.push('','Conversations');r.convos.forEach(c=>L.push('- '+ugDate(c.date)+': '+(c.who||'(unnamed)')+(c.location?' @ '+c.location:'')+' [VFL '+(c.vfl?'completed'+(c.vflNo?' #'+c.vflNo:''):'not completed')+']'+(c.notes?': '+c.notes:'')));}
