@@ -39,6 +39,9 @@
 :root{--c-ug:#c62828}
 @media (prefers-color-scheme:dark){:root{--c-ug:#ff6b60}}
 .k-ug{--k:var(--c-ug)}
+:root{--c-exercise:#00796b}
+@media (prefers-color-scheme:dark){:root{--c-exercise:#4dd0bd}}
+.k-exercise{--k:var(--c-exercise)}
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -127,6 +130,7 @@ a.btn.maplink svg{width:14px;height:14px}
 .bi{display:inline-flex;color:var(--c-boys)}
 .bi-school{color:var(--c-school)}
 .bi-ug{color:var(--c-ug)}
+.bi.bi-exercise{color:var(--c-exercise)}
 .ugcard{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:8px;margin:0 0 8px;display:grid;gap:6px}
 .ugcard .r2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .ugcard input[type=text],.ugcard textarea{width:100%;border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:var(--surface);color:var(--ink);font:inherit}
@@ -433,6 +437,7 @@ const ICONS={
   action:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
   users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   pick:'<line x1="4" y1="20.5" x2="17.5" y2="7"/><path d="M11.5 4.5Q19 3.5 20.5 11.5"/><line x1="20" y1="20.5" x2="8" y2="8.5"/><path d="M9.5 9.5L3 7L6.5 3.2Z"/>',
+  dumbbell:'<path d="M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11"/>',
   book:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
 };
 const FILLED={
@@ -445,8 +450,10 @@ const MARKERS={
 };
 const markIcon=k=>`<span class="bi bi-${k}" data-mk="${k}" title="${MARKERS[k].label}" role="img" aria-label="${MARKERS[k].label}">${icon(MARKERS[k].icon)}</span>`;
 const ugDay=ds=>filters.ug!==false&&data.items.some(i=>i&&i.type==='ug'&&i.date===ds);
-const markIcons=ds=>Object.keys(MARKERS).filter(k=>data[MARKERS[k].field]&&data[MARKERS[k].field][ds]).map(markIcon).join('')+(ugDay(ds)?`<span class="bi bi-ug" title="Underground visit" role="img" aria-label="Underground visit">${icon('pick')}</span>`:'');
-const hasMark=ds=>Object.values(MARKERS).some(m=>data[m.field]&&data[m.field][ds])||ugDay(ds);
+const exerciseOn=ds=>(EXERCISE_URL&&filters.exercise!==false&&exerciseByDate[ds])||[];
+const exerciseIcon=ds=>exerciseOn(ds).length?`<span class="bi bi-exercise" title="Exercise" role="img" aria-label="Exercise">${icon('dumbbell')}</span>`:'';
+const markIcons=ds=>Object.keys(MARKERS).filter(k=>data[MARKERS[k].field]&&data[MARKERS[k].field][ds]).map(markIcon).join('')+(ugDay(ds)?`<span class="bi bi-ug" title="Underground visit" role="img" aria-label="Underground visit">${icon('pick')}</span>`:'')+exerciseIcon(ds);
+const hasMark=ds=>Object.values(MARKERS).some(m=>data[m.field]&&data[m.field][ds])||ugDay(ds)||exerciseOn(ds).length>0;
 const icon=n=>FILLED[n]
   ?`<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${FILLED[n]}</svg>`
   :`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
@@ -510,6 +517,8 @@ const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
 
 /* ---------- state ---------- */
 const LS_KEY='calendar-data-v1', LS_DIRTY='calendar-dirty-v1', LS_ACT='calendar-actions-v1', LS_FILTERS='calendar-filters-v1';
+const LS_EXERCISE='calendar-exercise-v1';
+let exerciseByDate={};
 const LS_HINT='calendar-login-hint-v1', LS_AUTOTRY='calendar-autosignin-at-v1';   // remembered Microsoft account + time of the last automatic sign-in attempt (own names: all pages share one browser origin)
 const IN_FRAME=(()=>{try{return window.self!==window.top;}catch(e){return true;}})();
 
@@ -520,6 +529,8 @@ const ONEDRIVE_ACTIONS_PATH='marc.kirsten/Browser Tools/Action Tracking/action-t
 const ONEDRIVE_FEED_STATUS_PATH=ONEDRIVE_DATA_PATH.replace(/[^/]+$/,'calendar-feed-status.json'); // written by WeekAhead.ps1 -Feed next to calendar-data.json; drives the health LED on "Update phone"
 const IS_FAMILY_CALENDAR=false;                                                     // true only in family-calendar.html — hides the "Also add to Family Calendar" tick box there
 const FAMILY_ONEDRIVE_DATA_PATH='marc.kirsten/Browser Tools/Calendar/family-calendar-data.json'; // where copied items are written; leave as '' to turn the feature off
+const ONEDRIVE_EXERCISE_PATH='marc.kirsten/Browser Tools/Exercise Tool/exercise-calendar.json'; // written by the Exercise Tool; '' turns Exercise off
+const EXERCISE_URL=ONEDRIVE_EXERCISE_PATH?'https://mkirsten583.github.io/exercise-tool/':'';       // the Exercise Tool's page address
 const DIARY_URL='https://mkirsten583.github.io/Diary/';                             // the diary page's address; leave as '' to hide the Diary link in the toolbar
 /* ============================================================================ */
 const MSAL_CONFIGURED=!!(GRAPH_CLIENT_ID&&GRAPH_CLIENT_ID!=='YOUR-AZURE-APP-CLIENT-ID');
@@ -551,7 +562,7 @@ let view={y:now0.getFullYear(),m:now0.getMonth()+1,mode:'month',start:mondayOf(t
 let selected=todayStr();
 let paint=null;           // null | day-type key | 'clear' | a marker key ('boys', 'school')
 let filters={};           // item types switched off on this device, e.g. {chore:false}
-const FILTER_KEYS=()=>[...Object.keys(TYPES),...(ONEDRIVE_ACTIONS_PATH?['actions']:[])];
+const FILTER_KEYS=()=>[...Object.keys(TYPES),...(EXERCISE_URL?['exercise']:[]),...(ONEDRIVE_ACTIONS_PATH?['actions']:[])];
 const anyFilterOff=()=>FILTER_KEYS().some(k=>filters[k]===false);
 function saveFilters(){try{localStorage.setItem(LS_FILTERS,JSON.stringify(filters));}catch(e){}}
 let lastText=null, dirty=false, rev=0, writing=false, saveTimer=null;
@@ -859,6 +870,7 @@ async function signIn(){
     const r=await msalApp.loginPopup(req); msalAccount=r.account; rememberHint(r.account);
     renderData(); await syncFromOneDrive();
     if(ONEDRIVE_ACTIONS_PATH) await refreshActionsFromOneDrive();
+    await refreshExerciseFromOneDrive();
     if(ONEDRIVE_FEED_STATUS_PATH) refreshPhoneHealth();
     renderPill();
   }catch(e){toast('Sign-in was not completed: '+e.message);}
@@ -966,6 +978,36 @@ async function refreshActionsFromOneDrive(){
     await ingestActions(txt,ONEDRIVE_ACTIONS_PATH.split('/').pop(),{silent:true});
   }catch(e){actionsState.error=e.message;renderPill();renderData();}
 }
+/* ---------- exercise: read-only, written by the Exercise Tool ---------- */
+const EXERCISE_LABELS={ride:'Ride',walk:'Walk',run:'Run',row:'Row',weights:'Weights'};
+function indexExercise(list){
+  const by={};
+  for(const a of Array.isArray(list)?list:[]) if(a&&/^\d{4}-\d\d-\d\d$/.test(a.date)) (by[a.date]=by[a.date]||[]).push(a);
+  for(const k in by) by[k].sort((a,b)=>String(a.time||'').localeCompare(String(b.time||'')));
+  exerciseByDate=by;
+}
+function loadExerciseCache(){try{indexExercise(JSON.parse(localStorage.getItem(LS_EXERCISE)||'[]'));}catch(e){}}
+async function refreshExerciseFromOneDrive(){
+  if(!EXERCISE_URL||!msalAccount) return;
+  try{
+    const txt=await graphGetText(ONEDRIVE_EXERCISE_PATH);
+    const list=txt===null?[]:JSON.parse(txt).activities;
+    if(!Array.isArray(list)) return;
+    const before=JSON.stringify(exerciseByDate); indexExercise(list);
+    try{localStorage.setItem(LS_EXERCISE,JSON.stringify(list));}catch(e){}
+    if(JSON.stringify(exerciseByDate)!==before&&!painting) render();
+  }catch(e){console.error(e);}     // keeps the last copy that was read
+}
+const exerciseLink=(ds,add)=>EXERCISE_URL+'?date='+ds+(add?'&new=1':'');
+const openExercise=(ds,add)=>window.open(exerciseLink(ds,add),'_blank','noopener');
+const exerciseKinds=list=>{const n={};for(const a of list){const l=EXERCISE_LABELS[a.type]||'Exercise';n[l]=(n[l]||0)+1;}return Object.entries(n).map(([l,c])=>c>1?`${l} ×${c}`:l).join(', ');};
+const exerciseMins=list=>list.reduce((t,a)=>t+(+a.mins||0),0);
+const exerciseChip=list=>`<div class="chip k-exercise">${icon('dumbbell')}<span class="tx">${esc('Exercise: '+exerciseKinds(list))}</span></div>`;
+function exerciseRow(ds,list,compact){
+  const mins=exerciseMins(list), title='Exercise'+(mins?` (${ugHm(mins)})`:'');
+  return (compact?'':'<div class="grp">Exercise</div>')
+    +`<a class="row k-exercise" href="${esc(exerciseLink(ds))}" target="_blank" rel="noopener" data-nolink style="color:inherit;text-decoration:none"><span class="ico">${icon('dumbbell')}</span><div class="rb"><div class="r1"><span class="ti">${esc(title)}</span></div><div class="r2" style="flex-direction:column;align-items:flex-start">${list.map(a=>`<span>${esc((a.time?a.time+' ':'')+(a.summary||EXERCISE_LABELS[a.type]||''))}</span>`).join('')}</div></div></a>`;
+}
 let phoneHealth={state:'unknown',title:'Health not checked yet.'}, phoneHealthPending=false;
 function phoneHealthFromStatus(st){
   if(!st) return {state:'unknown',title:'No health info yet — click Update phone, or this feed has not been run since the health check was added.',lastRunMs:0};
@@ -1029,11 +1071,12 @@ function renderHeader(){
   const rl=$('#rangeLbl');
   if(view.mode==='fortnight'){const e=fromDayNum(dayNum(view.start)+13),pe=parse(e);rl.hidden=false;rl.textContent=`${shortDate(view.start)} to ${shortDate(e)} ${pe.y}`;}
   else rl.hidden=true;
-  $('#addmenu').innerHTML=Object.entries(TYPES).map(([k,t])=>`<button class="k-${k}" data-act="add" data-type="${k}">${icon(t.icon)}${t.label}</button>`).join('');
+  $('#addmenu').innerHTML=Object.entries(TYPES).map(([k,t])=>`<button class="k-${k}" data-act="add" data-type="${k}">${icon(t.icon)}${t.label}</button>`).join('')
+    +(EXERCISE_URL?`<button class="k-exercise" data-act="add-exercise">${icon('dumbbell')}Exercise</button>`:'');
 }
 function filterHtml(){
   const boxes=FILTER_KEYS().map(k=>{
-    const label=k==='actions'?'Actions due':TYPES[k].plural, ic=k==='actions'?'action':TYPES[k].icon;
+    const label=k==='actions'?'Actions due':k==='exercise'?'Exercise':TYPES[k].plural, ic=k==='actions'?'action':k==='exercise'?'dumbbell':TYPES[k].icon;
     return `<label class="fchk k-${k}"><input type="checkbox" data-filter="${k}" ${filters[k]===false?'':'checked'}>${icon(ic)}${label}</label>`;
   }).join('');
   return `<div class="fchks">${boxes}</div>`;
@@ -1080,9 +1123,10 @@ function dayCell(ds,today){
   const p=parse(ds), dt=dayType(ds), acts=openActionsOn(ds), late=ds<today;
   const cls=['day']; if(dt) cls.push('dt-'+dt); if(p.m!==view.m) cls.push('other'); if(weekday(ds)>=5) cls.push('weekend'); if(ds===today) cls.push('today'); if(ds===selected) cls.push('selected');
   const SLOTS=5;
-  const lines=[...occ.map(o=>chipHtml(o,ds)),...acts.map(x=>actChip(x,late))];
+  const ex=exerciseOn(ds);
+  const lines=[...occ.map(o=>chipHtml(o,ds)),...(ex.length?[exerciseChip(ex)]:[]),...acts.map(x=>actChip(x,late))];
   let chips=lines.length>SLOTS?lines.slice(0,SLOTS-1).join('')+`<div class="chip more">+${lines.length-(SLOTS-1)} more</div>`:lines.join('');
-  const dots=occ.slice(0,8).map(o=>`<i class="dot k-${o.it.type}"></i>`).join('')+acts.slice(0,8).map(()=>`<i class="dot sq k-action ${late?'late':''}"></i>`).join('');
+  const dots=occ.slice(0,8).map(o=>`<i class="dot k-${o.it.type}"></i>`).join('')+(ex.length?'<i class="dot k-exercise"></i>':'')+acts.slice(0,8).map(()=>`<i class="dot sq k-action ${late?'late':''}"></i>`).join('');
   const label=p.d===1?`${p.d} ${MON3[p.m-1]}`:p.d, note=data.dayNotes[ds];
   return `<div class="${cls.join(' ')}" data-date="${ds}" title="${esc([dt?DTMAP[dt].label:'',note||''].filter(Boolean).join(' – '))}">`
     +`<div class="dh"><span class="dn"><span class="num">${label}</span>${markIcons(ds)}</span><span class="dtl">${dt?esc(DTMAP[dt].short):''}</span></div>`
@@ -1150,6 +1194,8 @@ function rowsHtml(ds,occ,acts,showHint,o={}){
       h+=`<div class="row k-${tk} ${done?'done':''}" data-act="edit" data-id="${it.id}" data-date="${ds}">${lead}<div class="rb"><div class="r1">${d.time?`<span class="t">${esc(d.time)}</span>`:''}<span class="ti">${esc(d.title)}</span></div>${d.bits.length?`<div class="r2">${d.bits.map(b=>`<span>${b}</span>`).join('')}</div>`:''}${(it.images&&it.images.length)?`<div class="thumbs">${it.images.map((im,i)=>`<img class="thumb" src="${im.data}" alt="Attached image ${i+1}" data-act="viewimg" data-id="${it.id}" data-idx="${i}">`).join('')}</div>`:''}</div></div>`;
     }
   }
+  const ex=exerciseOn(ds);
+  if(ex.length) h+=exerciseRow(ds,ex,o.groups===false);
   const late=ds<todayStr();
   if(acts.length&&o.compact){
     h+=acts.slice(0,8).map(a=>`<div class="row static act ${late?'late':''}">${actBullet(late)}<div class="rb"><div class="r1"><span class="ti">${esc(a.title)}</span></div></div></div>`).join('');
@@ -1171,9 +1217,9 @@ function renderPanel(){
     +`<div class="sec"><div class="lab">Day type</div><div class="dtset">${DAYTYPES.map(d=>`<button class="dtbtn dt-${d.key} ${dt===d.key?'on':''}" data-act="setdt" data-key="${d.key}"><i></i>${d.label}</button>`).join('')}</div>`
     +`<div class="dtset" style="margin-top:8px">${Object.entries(MARKERS).map(([k,m])=>`<button class="dtbtn mkbtn mk-${k} ${data[m.field][ds]?'on':''}" data-act="setmark" data-key="${k}">${icon(m.icon)}${m.label}</button>`).join('')}</div>`
     +`<input id="dayNote" class="note" placeholder="Day note (optional), e.g. Anzac Day" value="${esc(data.dayNotes[ds]||'')}" aria-label="Day note"></div>`
-    +`<div class="sec"><div class="lab">Add to this day</div><div class="addrow">${Object.entries(TYPES).map(([k,t])=>`<button class="btn k-${k}" data-act="add" data-type="${k}">${icon(t.icon)}${t.label}</button>`).join('')}</div></div>`
+    +`<div class="sec"><div class="lab">Add to this day</div><div class="addrow">${Object.entries(TYPES).map(([k,t])=>`<button class="btn k-${k}" data-act="add" data-type="${k}">${icon(t.icon)}${t.label}</button>`).join('')}${EXERCISE_URL?`<button class="btn k-exercise" data-act="add-exercise">${icon('dumbbell')}Exercise</button>`:''}</div></div>`
     +`<div class="sec"><div class="lab">Show on calendar ${anyFilterOff()?'<button class="linkbtn" data-act="filters-all">Show all</button>':''}</div>${filterHtml()}</div>`
-    +`<div class="sec"><div class="lab">On this day</div>${body||`<p class="empty">${anyFilterOff()?'Nothing to show. Some items are switched off above.':'Nothing scheduled.'}</p>`}${body&&!occ.length&&!acts.length?'<p class="empty">Nothing scheduled.</p>':''}</div>`;
+    +`<div class="sec"><div class="lab">On this day</div>${body||`<p class="empty">${anyFilterOff()?'Nothing to show. Some items are switched off above.':'Nothing scheduled.'}</p>`}${body&&!occ.length&&!acts.length&&!exerciseOn(ds).length?'<p class="empty">Nothing scheduled.</p>':''}</div>`;
 }
 function fortnightBox(ds,today,pr){
   const p=parse(ds), dt=dayType(ds), occ=itemsForDay(ds), acts=openActionsOn(ds), note=data.dayNotes[ds];
@@ -1786,10 +1832,13 @@ document.addEventListener('click',async e=>{
     case 'view':setMode(el.dataset.v);break;
     case 'addto':{
       selected=el.dataset.date; const keys=Object.keys(TYPES);
-      const c=await askChoice('Add to '+shortDate(selected),'',[...keys.map(k=>TYPES[k].label),'Cancel'],false);
-      if(c>=0&&c<keys.length) openEditor(keys[c],null,selected); else render();
+      const extra=EXERCISE_URL?['Exercise']:[];
+      const c=await askChoice('Add to '+shortDate(selected),'',[...keys.map(k=>TYPES[k].label),...extra,'Cancel'],false);
+      if(c>=0&&c<keys.length) openEditor(keys[c],null,selected);
+      else{ if(extra.length&&c===keys.length) openExercise(selected,true); render(); }
       break;
     }
+    case 'add-exercise':$('#addmenu').hidden=true;openExercise(selected,true);break;
     case 'addmenu':$('#addmenu').hidden=!$('#addmenu').hidden;break;
     case 'add':$('#addmenu').hidden=true;openEditor(el.dataset.type,null,selected);break;
     case 'edit':openEditor(null,el.dataset.id,el.dataset.date);break;
@@ -2083,7 +2132,7 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='t'){goToDate(todayStr());render();}
 });
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible'){ if(msalAccount){syncFromOneDrive(); if(ONEDRIVE_ACTIONS_PATH) refreshActionsFromOneDrive(); if(ONEDRIVE_FEED_STATUS_PATH) refreshPhoneHealth();} refreshPhoneQueue(); }
+  if(document.visibilityState==='visible'){ if(msalAccount){syncFromOneDrive(); if(ONEDRIVE_ACTIONS_PATH) refreshActionsFromOneDrive(); refreshExerciseFromOneDrive(); if(ONEDRIVE_FEED_STATUS_PATH) refreshPhoneHealth();} refreshPhoneQueue(); }
 });
 
 /* ---------- start ---------- */
@@ -2092,6 +2141,7 @@ document.addEventListener('visibilitychange',()=>{
   try{dirty=localStorage.getItem(LS_DIRTY)==='1';}catch(e){}
   try{filters=JSON.parse(localStorage.getItem(LS_FILTERS)||'{}')||{};}catch(e){filters={};}
   loadActionsCache();
+  loadExerciseCache();
   render();
   refreshPhoneQueue();
   setInterval(refreshPhoneQueue,5*60*1000);
@@ -2111,7 +2161,7 @@ document.addEventListener('visibilitychange',()=>{
       if(msalAccount){ rememberHint(msalAccount); ready=!!(await getGraphToken()); if(!ready) ready=await autoReauth(); }
       else if(readHint()) ready=await autoReauth();
       else setStatus('local');
-      if(ready&&msalAccount){await syncFromOneDrive(); if(ONEDRIVE_ACTIONS_PATH) await refreshActionsFromOneDrive(); if(ONEDRIVE_FEED_STATUS_PATH) refreshPhoneHealth();}
+      if(ready&&msalAccount){await syncFromOneDrive(); if(ONEDRIVE_ACTIONS_PATH) await refreshActionsFromOneDrive(); await refreshExerciseFromOneDrive(); if(ONEDRIVE_FEED_STATUS_PATH) refreshPhoneHealth();}
     }catch(e){console.error(e);setStatus('local');}
   }else setStatus('local');
   renderPill();
